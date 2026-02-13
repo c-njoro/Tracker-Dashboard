@@ -1,13 +1,11 @@
 "use client";
 
-/**
- * components/TripHistory.tsx
- * Fetches last 24h location history and renders a speed chart.
- * The map polyline is handled by passing coords back up (or via a
- * separate Leaflet layer added inside LiveMap).
- */
-
 import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
+import "leaflet/dist/leaflet.css";
+
+// Dynamically import Leaflet components (no SSR)
+const MiniMap = dynamic(() => import("./MiniMap"), { ssr: false });
 
 interface Ping {
   lat: number;
@@ -44,6 +42,7 @@ export default function TripHistory({ vehicleId, apiBase }: Props) {
       .catch(() => setLoading(false));
   }, [vehicleId, range, apiBase]);
 
+  // --- stats calculations ---
   const maxSpeed = Math.max(...pings.map((p) => p.speedKmh ?? 0), 1);
   const avgSpeed = pings.length
     ? (pings.reduce((s, p) => s + (p.speedKmh ?? 0), 0) / pings.length).toFixed(
@@ -73,7 +72,7 @@ export default function TripHistory({ vehicleId, apiBase }: Props) {
         bottom: 0,
         left: 0,
         right: 0,
-        height: 200,
+        height: 300, // more room for mini‑map
         background: "#0D1220",
         borderTop: "1px solid #1E2A45",
         display: "flex",
@@ -81,7 +80,7 @@ export default function TripHistory({ vehicleId, apiBase }: Props) {
         zIndex: 500,
       }}
     >
-      {/* Header */}
+      {/* ── Header (fixed height) ── */}
       <div
         style={{
           display: "flex",
@@ -102,7 +101,6 @@ export default function TripHistory({ vehicleId, apiBase }: Props) {
         >
           Trip History
         </span>
-        {/* Range selector */}
         {(["1h", "6h", "24h"] as const).map((r) => (
           <button
             key={r}
@@ -116,7 +114,6 @@ export default function TripHistory({ vehicleId, apiBase }: Props) {
               borderRadius: 4,
               fontSize: 11,
               cursor: "pointer",
-              fontFamily: "inherit",
             }}
           >
             {r}
@@ -129,8 +126,20 @@ export default function TripHistory({ vehicleId, apiBase }: Props) {
         </div>
       </div>
 
-      {/* Speed Chart */}
-      <div style={{ flex: 1, padding: "8px 16px", overflow: "hidden" }}>
+      {/* 🗺️ Mini‑Map – takes ALL remaining vertical space */}
+      <div style={{ flex: 1, minHeight: 0, padding: "8px 16px" }}>
+        {!loading && pings.length > 0 && <MiniMap pings={pings} />}
+        {!loading && pings.length === 0 && (
+          <div style={{ color: "#334155", fontSize: 12, paddingTop: 16 }}>
+            No location data for this period.
+          </div>
+        )}
+      </div>
+
+      {/* 📈 Speed Chart – fixed height (80px) */}
+      <div
+        style={{ height: 80, padding: "0 16px 8px 16px", overflow: "hidden" }}
+      >
         {loading ? (
           <div style={{ color: "#334155", fontSize: 12, paddingTop: 16 }}>
             Loading…
@@ -147,7 +156,6 @@ export default function TripHistory({ vehicleId, apiBase }: Props) {
                 <stop offset="100%" stopColor="#38BDF8" stopOpacity="0" />
               </linearGradient>
             </defs>
-            {/* Area fill */}
             <polyline
               points={pings
                 .map((p, i) => {
@@ -159,7 +167,6 @@ export default function TripHistory({ vehicleId, apiBase }: Props) {
               fill="url(#speedGrad)"
               stroke="none"
             />
-            {/* Line */}
             <polyline
               points={pings
                 .map((p, i) => {

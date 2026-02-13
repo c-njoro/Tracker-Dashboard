@@ -7,29 +7,18 @@ import StatsBar from "@/components/StatsBar";
 import TripHistory from "@/components/TripHistory";
 import AddVehicle from "@/components/AddVehicle";
 import AddDriver from "@/components/AddDriver";
-
 import { EventSourcePolyfill } from "event-source-polyfill";
+
+// ✅ Use the real Vehicle type everywhere
+import type { Vehicle } from "@/types/vehicle";
 
 const LiveMap = dynamic(() => import("@/components/LiveMap"), { ssr: false });
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 
-export interface VehicleState {
-  vehicleName: string;
-  vehiclePlateNumber?: string;
-  vehicleType: string;
-  inUse: boolean;
-  driverId?: string;
-  driverName?: string;
-  lat?: number;
-  lng?: number;
-  speed?: number;
-  heading?: number;
-  timestamp?: string;
-}
-
 export default function Dashboard() {
-  const [vehicles, setVehicles] = useState<Record<string, VehicleState>>({});
+  // ✅ State: record of Vehicle objects, keyed by _id
+  const [vehicles, setVehicles] = useState<Record<string, Vehicle>>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [showAddVehicle, setShowAddVehicle] = useState(false);
@@ -39,27 +28,30 @@ export default function Dashboard() {
   );
   const eventSourceRef = useRef<EventSource | null>(null);
 
+  // ── Load initial vehicle list + latest positions ─────────────────────────
   async function loadVehicles() {
-    const data = await fetch(`${API}/api/locations/latest`, {
-      headers: { "ngrok-skip-browser-warning": "true" },
-    }).then((r) => r.json());
-    console.log(data);
-    setVehicles(data);
+    try {
+      const data = await fetch(`${API}/api/locations/latest`, {
+        headers: { "ngrok-skip-browser-warning": "true" },
+      }).then((r) => r.json());
+      // ✅ data is an array of Vehicle objects – convert to record
+      const record = Object.fromEntries(data.map((v: Vehicle) => [v._id, v]));
+      setVehicles(record);
+    } catch (err) {
+      console.error("Failed to load vehicles:", err);
+    }
   }
 
   useEffect(() => {
     loadVehicles();
   }, []);
 
+  // ── SSE live updates ─────────────────────────────────────────────────────
   useEffect(() => {
-    // Ensure this runs only on the client (Next.js SSR safety)
     if (typeof window === "undefined") return;
 
     const es = new EventSourcePolyfill(`${API}/api/live/stream`, {
-      headers: {
-        "ngrok-skip-browser-warning": "true",
-        // You can add other headers like Authorization if needed
-      },
+      headers: { "ngrok-skip-browser-warning": "true" },
     });
 
     eventSourceRef.current = es;
@@ -70,22 +62,51 @@ export default function Dashboard() {
       if (!e.data || e.data.startsWith(":")) return;
       try {
         const update = JSON.parse(e.data);
-        setVehicles((prev) => ({
-          ...prev,
-          [update.vehicleId]: { ...prev[update.vehicleId], ...update },
-        }));
-      } catch {}
+        // ✅ update has flat fields: vehicleId, lat, lng, speed, heading, timestamp, ...
+        setVehicles((prev) => {
+          const vehicle = prev[update.vehicleId];
+          if (!vehicle) return prev; // ignore unknown vehicle
+
+          // ✅ Transform flat update into nested lastSeen object
+          const updatedVehicle: Vehicle = {
+            ...vehicle,
+            // Update top‑level fields if provided (driverName, vehicleName, etc.)
+            name: update.vehicleName ?? vehicle.name,
+            plateNumber: update.vehiclePlateNumber ?? vehicle.plateNumber,
+            type: update.vehicleType ?? vehicle.type,
+            driverId: update.driverId ?? vehicle.driverId,
+            isActive: update.inUse ?? vehicle.isActive, // if your SSE sends `inUse`
+            // Update lastSeen – preserve existing fields if update doesn't include them
+            lastSeen: {
+              ...(vehicle.lastSeen || {}),
+              lat: update.lat ?? vehicle.lastSeen?.lat,
+              lng: update.lng ?? vehicle.lastSeen?.lng,
+              speed: update.speed ?? vehicle.lastSeen?.speed,
+              heading: update.heading ?? vehicle.lastSeen?.heading,
+              timestamp: update.timestamp ?? vehicle.lastSeen?.timestamp,
+            },
+          };
+
+          return {
+            ...prev,
+            [update.vehicleId]: updatedVehicle,
+          };
+        });
+      } catch (err) {
+        // ignore malformed message
+      }
     };
 
     return () => es.close();
   }, []);
 
+  // ── Derived values ───────────────────────────────────────────────────────
   const vehicleList = Object.values(vehicles);
   const selectedVehicle = selectedId ? vehicles[selectedId] : null;
 
   return (
     <div className="flex h-screen flex-col bg-[#0A0E1A] text-slate-200 font-mono overflow-hidden">
-      {/* ── Top Bar ── */}
+      {/* ── Top Bar ───────────────────────────────────────────── */}
       <header className="flex h-[52px] items-center gap-4 border-b border-[#1E2A45] bg-[#0D1220] px-5">
         <div className="flex items-center gap-2">
           <span
@@ -134,7 +155,7 @@ export default function Dashboard() {
         </span>
       </header>
 
-      {/* ── Layout ── */}
+      {/* ── Main Layout ───────────────────────────────────────── */}
       <main className="flex flex-1 overflow-hidden">
         {/* Sidebar */}
         <aside className="w-[280px] flex-shrink-0 border-r border-[#1E2A45] bg-[#0D1220] flex flex-col overflow-y-auto">
@@ -147,25 +168,25 @@ export default function Dashboard() {
             selectedId={selectedId}
             onSelect={(id) => {
               setSelectedId(id);
-              setShowHistory(false);
+              setShowHistory(false); // close history when switching vehicles
             }}
           />
 
+          {/* ── Selected Vehicle Panel (now uses correct Vehicle fields) ── */}
           {selectedVehicle && (
             <div className="mt-auto border-t border-[#1E2A45] bg-[#0A0E1A] p-4">
-              <div className="text-sm font-bold">
-                {selectedVehicle.vehicleName}
-              </div>
+              <div className="text-sm font-bold">{selectedVehicle.name}</div>
 
-              {selectedVehicle.vehiclePlateNumber && (
+              {selectedVehicle.plateNumber && (
                 <div className="mt-1 inline-block rounded bg-[#1E2A45] px-2 py-0.5 text-[11px] tracking-widest text-slate-400">
-                  {selectedVehicle.vehiclePlateNumber}
+                  {selectedVehicle.plateNumber}
                 </div>
               )}
 
+              {/* Driver info – we only have driverId, not name */}
               <div
                 className={`mt-3 flex items-center gap-2 rounded-md border px-2.5 py-2 ${
-                  selectedVehicle.driverName
+                  selectedVehicle.driverId
                     ? "border-emerald-500/30 bg-emerald-900/30"
                     : "border-[#1E2A45] bg-[#131929]"
                 }`}
@@ -173,26 +194,39 @@ export default function Dashboard() {
                 <span>👤</span>
                 <span
                   className={`text-xs font-semibold ${
-                    selectedVehicle.driverName
+                    selectedVehicle.driverId
                       ? "text-emerald-400"
                       : "text-slate-400"
                   }`}
                 >
-                  {selectedVehicle.driverName ?? "No driver on shift"}
+                  {selectedVehicle.driverId
+                    ? `Driver ID: ${selectedVehicle.driverId.slice(-4)}`
+                    : "No driver assigned"}
                 </span>
               </div>
 
               <div className="mt-3 grid grid-cols-2 gap-2">
                 {[
-                  ["Speed", `${selectedVehicle.speed ?? 0} km/h`],
-                  ["Heading", `${selectedVehicle.heading?.toFixed(0) ?? "–"}°`],
+                  [
+                    "Speed",
+                    `${selectedVehicle.lastSeen?.speed?.toFixed(0) ?? 0} km/h`,
+                  ],
+                  [
+                    "Heading",
+                    `${selectedVehicle.lastSeen?.heading?.toFixed(0) ?? "–"}°`,
+                  ],
                   [
                     "Last Ping",
-                    selectedVehicle.timestamp
-                      ? new Date(selectedVehicle.timestamp).toLocaleTimeString()
+                    selectedVehicle.lastSeen?.timestamp
+                      ? new Date(
+                          selectedVehicle.lastSeen.timestamp,
+                        ).toLocaleTimeString()
                       : "–",
                   ],
-                  ["Status", selectedVehicle.inUse ? "On Shift" : "Available"],
+                  [
+                    "Status",
+                    selectedVehicle.isActive ? "On Shift" : "Available",
+                  ],
                 ].map(([label, value]) => (
                   <div key={label} className="rounded-md bg-[#131929] p-2">
                     <div className="text-[9px] uppercase tracking-wider text-slate-500">
@@ -215,7 +249,7 @@ export default function Dashboard() {
           )}
         </aside>
 
-        {/* Map */}
+        {/* Map Section */}
         <section className="relative flex flex-1 flex-col overflow-hidden">
           <LiveMap
             vehicles={vehicleList}
@@ -228,6 +262,7 @@ export default function Dashboard() {
         </section>
       </main>
 
+      {/* Modals */}
       {showAddVehicle && (
         <AddVehicle
           apiBase={API}
