@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "axios": "^1.13.5",
     "event-source-polyfill": "^1.0.31",
     "leaflet": "^1.9.4",
     "next": "16.1.6",

@@ -102,7 +102,7 @@ export default function VehicleList({ vehicles, selectedId, onSelect }: Props) {
 
                 <div>
                   <p className={`text-xs`}>
-                    {v.isActive ? "In Use" : "Not Active"}
+                    {v.inShift ? "In Use" : "Not Active"}
                   </p>
                 </div>
               </div>

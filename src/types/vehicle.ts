@@ -23,6 +23,7 @@ export interface Vehicle {
 
   speedLimitKmh: number;
   isActive: boolean;
+  inShift: boolean;
 
   lastSeen?: LastSeen | null;
 }

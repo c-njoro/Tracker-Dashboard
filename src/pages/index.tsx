@@ -8,6 +8,7 @@ import TripHistory from "@/components/TripHistory";
 import AddVehicle from "@/components/AddVehicle";
 import AddDriver from "@/components/AddDriver";
 import { EventSourcePolyfill } from "event-source-polyfill";
+import { useRouter } from "next/navigation";
 
 // ✅ Use the real Vehicle type everywhere
 import type { Vehicle } from "@/types/vehicle";
@@ -17,6 +18,7 @@ const LiveMap = dynamic(() => import("@/components/LiveMap"), { ssr: false });
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 
 export default function Dashboard() {
+  const router = useRouter();
   // ✅ State: record of Vehicle objects, keyed by _id
   const [vehicles, setVehicles] = useState<Record<string, Vehicle>>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -75,7 +77,7 @@ export default function Dashboard() {
             plateNumber: update.vehiclePlateNumber ?? vehicle.plateNumber,
             type: update.vehicleType ?? vehicle.type,
             driverId: update.driverId ?? vehicle.driverId,
-            isActive: update.inUse ?? vehicle.isActive, // if your SSE sends `inUse`
+            inShift: update.inUse ?? vehicle.inShift, // if your SSE sends `inUse`
             // Update lastSeen – preserve existing fields if update doesn't include them
             lastSeen: {
               ...(vehicle.lastSeen || {}),
@@ -125,16 +127,10 @@ export default function Dashboard() {
 
         <div className="ml-auto flex gap-2">
           <button
-            onClick={() => setShowAddDriver(true)}
+            onClick={() => router.push("/shifts")}
             className="rounded-md border border-[#1E2A45] px-3 py-1 text-[11px] tracking-wider text-slate-400 hover:border-sky-400 hover:text-sky-400 transition"
           >
-            + Driver
-          </button>
-          <button
-            onClick={() => setShowAddVehicle(true)}
-            className="rounded-md border border-[#1E2A45] px-3 py-1 text-[11px] tracking-wider text-slate-400 hover:border-sky-400 hover:text-sky-400 transition"
-          >
-            + Vehicle
+            Shifts Management
           </button>
         </div>
 
@@ -225,7 +221,7 @@ export default function Dashboard() {
                   ],
                   [
                     "Status",
-                    selectedVehicle.isActive ? "On Shift" : "Available",
+                    selectedVehicle.inShift ? "On Shift" : "Available",
                   ],
                 ].map(([label, value]) => (
                   <div key={label} className="rounded-md bg-[#131929] p-2">
@@ -261,22 +257,6 @@ export default function Dashboard() {
           )}
         </section>
       </main>
-
-      {/* Modals */}
-      {showAddVehicle && (
-        <AddVehicle
-          apiBase={API}
-          onAdded={loadVehicles}
-          onClose={() => setShowAddVehicle(false)}
-        />
-      )}
-      {showAddDriver && (
-        <AddDriver
-          apiBase={API}
-          onAdded={loadVehicles}
-          onClose={() => setShowAddDriver(false)}
-        />
-      )}
     </div>
   );
 }

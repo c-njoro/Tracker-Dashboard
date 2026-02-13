@@ -9,7 +9,7 @@
 import type { Vehicle } from "@/types/vehicle";
 
 export default function StatsBar({ vehicles }: { vehicles: Vehicle[] }) {
-  const online = vehicles.filter((v) => v.isActive === true).length;
+  const online = vehicles.filter((v) => v.inShift === true).length;
 
   const moving = vehicles.filter((v) => (v.lastSeen?.speed ?? 0) > 2).length;
   const maxSpeed = vehicles.reduce(
