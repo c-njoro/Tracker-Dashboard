@@ -1,8 +1,8 @@
 export interface Shift {
   _id: string;
 
-  driverId: string;
-  vehicleId: string;
+  userId: string;
+  technicianId: string;
 
   isActive: boolean;
 

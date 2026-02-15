@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import "leaflet/dist/leaflet.css";
 
-// Dynamically import Leaflet components (no SSR)
 const MiniMap = dynamic(() => import("./MiniMap"), { ssr: false });
 
 interface Ping {
@@ -15,23 +14,48 @@ interface Ping {
 }
 
 interface Props {
-  vehicleId: string;
+  technicianId: string;
   apiBase: string;
+  from?: string; // ISO start date (optional – overrides range)
+  to?: string; // ISO end date (optional)
+  shiftInfo?: {
+    technicianName: string;
+    employeeId?: string;
+    userDevice?: string | null;
+    isActive: boolean;
+    startedAt: string;
+    endedAt?: string | null;
+  };
+  onClose?: () => void;
 }
 
-export default function TripHistory({ vehicleId, apiBase }: Props) {
+export default function TripHistory({
+  technicianId,
+  apiBase,
+  from,
+  to,
+  shiftInfo,
+  onClose,
+}: Props) {
   const [pings, setPings] = useState<Ping[]>([]);
   const [loading, setLoading] = useState(true);
-  const [range, setRange] = useState("24h");
+  const [range, setRange] = useState("24h"); // only used if from/to not provided
+
+  // Determine effective from/to
+  const effectiveFrom =
+    from ||
+    (() => {
+      const hours = range === "1h" ? 1 : range === "6h" ? 6 : 24;
+      return new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+    })();
+
+  const effectiveTo = to || new Date().toISOString();
 
   useEffect(() => {
     setLoading(true);
-    const hours = range === "1h" ? 1 : range === "6h" ? 6 : 24;
-    const from = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
-    const to = new Date().toISOString();
-
+    // Fetch with a very high limit to get all pings in the range
     fetch(
-      `${apiBase}/api/locations/${vehicleId}/history?from=${from}&to=${to}&limit=500`,
+      `${apiBase}/api/locations/${technicianId}/history?from=${effectiveFrom}&to=${effectiveTo}&limit=10000`,
       { headers: { "ngrok-skip-browser-warning": "true" } },
     )
       .then((r) => r.json())
@@ -40,9 +64,9 @@ export default function TripHistory({ vehicleId, apiBase }: Props) {
         setLoading(false);
       })
       .catch(() => setLoading(false));
-  }, [vehicleId, range, apiBase]);
+  }, [technicianId]);
 
-  // --- stats calculations ---
+  // Stats calculations (unchanged)
   const maxSpeed = Math.max(...pings.map((p) => p.speedKmh ?? 0), 1);
   const avgSpeed = pings.length
     ? (pings.reduce((s, p) => s + (p.speedKmh ?? 0), 0) / pings.length).toFixed(
@@ -68,67 +92,108 @@ export default function TripHistory({ vehicleId, apiBase }: Props) {
   return (
     <div
       style={{
-        position: "absolute",
-        bottom: 0,
+        position: "fixed",
+        top: 0,
         left: 0,
         right: 0,
-        height: 300, // more room for mini‑map
-        background: "#0D1220",
-        borderTop: "1px solid #1E2A45",
+        bottom: 0,
+        background: "#0A0E1A",
+        zIndex: 1000,
         display: "flex",
         flexDirection: "column",
-        zIndex: 500,
+        padding: "20px",
       }}
     >
-      {/* ── Header (fixed height) ── */}
+      {/* Header with shift info and close button */}
       <div
         style={{
           display: "flex",
+          justifyContent: "space-between",
           alignItems: "center",
-          gap: 16,
-          padding: "8px 16px",
-          borderBottom: "1px solid #1E2A45",
-          flexShrink: 0,
+          marginBottom: 16,
         }}
       >
-        <span
-          style={{
-            fontSize: 10,
-            letterSpacing: 2,
-            color: "#475569",
-            textTransform: "uppercase",
-          }}
-        >
-          Trip History
-        </span>
-        {(["1h", "6h", "24h"] as const).map((r) => (
+        <div>
+          {shiftInfo ? (
+            <>
+              <h2
+                style={{ fontSize: 20, fontWeight: "bold", color: "#E2E8F0" }}
+              >
+                {shiftInfo.technicianName} ·{" "}
+                {shiftInfo.employeeId || "No Employee ID"}
+              </h2>
+              <p style={{ fontSize: 14, color: "#94A3B8", marginTop: 4 }}>
+                Device: {shiftInfo.userDevice} ·{" "}
+                {shiftInfo.isActive ? (
+                  <span style={{ color: "#10B981" }}>● Active</span>
+                ) : (
+                  <span style={{ color: "#64748B" }}>● Ended</span>
+                )}
+              </p>
+              <p style={{ fontSize: 12, color: "#64748B", marginTop: 2 }}>
+                Started: {new Date(shiftInfo.startedAt).toLocaleString()}
+                {shiftInfo.endedAt &&
+                  ` · Ended: ${new Date(shiftInfo.endedAt).toLocaleString()}`}
+              </p>
+            </>
+          ) : (
+            <h2 style={{ fontSize: 20, fontWeight: "bold", color: "#E2E8F0" }}>
+              Trip History
+            </h2>
+          )}
+        </div>
+        {onClose && (
           <button
-            key={r}
-            onClick={() => setRange(r)}
+            onClick={onClose}
             style={{
-              background: range === r ? "#1E2A45" : "transparent",
-              border: "1px solid",
-              borderColor: range === r ? "#38BDF8" : "#1E2A45",
-              color: range === r ? "#38BDF8" : "#475569",
-              padding: "2px 10px",
-              borderRadius: 4,
-              fontSize: 11,
+              background: "none",
+              border: "none",
+              color: "#94A3B8",
+              fontSize: 24,
               cursor: "pointer",
             }}
           >
-            {r}
+            ✕
           </button>
-        ))}
-        <div style={{ display: "flex", gap: 20, marginLeft: "auto" }}>
-          <StatPill label="PINGS" value={String(pings.length)} />
-          <StatPill label="AVG SPEED" value={`${avgSpeed} km/h`} />
-          <StatPill label="DISTANCE" value={`${distance} km`} />
-        </div>
+        )}
       </div>
 
-      {/* 🗺️ Mini‑Map – takes ALL remaining vertical space */}
-      <div style={{ flex: 1, minHeight: 0, padding: "8px 16px" }}>
-        {!loading && pings.length > 0 && <MiniMap pings={pings} />}
+      {/* Range selector – only show if no custom from/to */}
+      {!from && !to && (
+        <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+          {(["1h", "6h", "24h"] as const).map((r) => (
+            <button
+              key={r}
+              onClick={() => setRange(r)}
+              style={{
+                background: range === r ? "#1E2A45" : "transparent",
+                border: "1px solid",
+                borderColor: range === r ? "#38BDF8" : "#1E2A45",
+                color: range === r ? "#38BDF8" : "#475569",
+                padding: "4px 12px",
+                borderRadius: 4,
+                fontSize: 11,
+                cursor: "pointer",
+              }}
+            >
+              {r}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Stats pills */}
+      <div style={{ display: "flex", gap: 20, marginBottom: 16 }}>
+        <StatPill label="PINGS" value={String(pings.length)} />
+        <StatPill label="AVG SPEED" value={`${avgSpeed} km/h`} />
+        <StatPill label="DISTANCE" value={`${distance} km`} />
+      </div>
+
+      {/* Mini‑map */}
+      <div style={{ flex: 1, minHeight: 0, marginBottom: 16 }}>
+        {!loading && pings.length > 0 && (
+          <MiniMap pings={pings} interactive={true} />
+        )}
         {!loading && pings.length === 0 && (
           <div style={{ color: "#334155", fontSize: 12, paddingTop: 16 }}>
             No location data for this period.
@@ -136,19 +201,11 @@ export default function TripHistory({ vehicleId, apiBase }: Props) {
         )}
       </div>
 
-      {/* 📈 Speed Chart – fixed height (80px) */}
-      <div
-        style={{ height: 80, padding: "0 16px 8px 16px", overflow: "hidden" }}
-      >
+      {/* Speed chart */}
+      <div style={{ height: 80, overflow: "hidden" }}>
         {loading ? (
-          <div style={{ color: "#334155", fontSize: 12, paddingTop: 16 }}>
-            Loading…
-          </div>
-        ) : pings.length === 0 ? (
-          <div style={{ color: "#334155", fontSize: 12, paddingTop: 16 }}>
-            No data for this period.
-          </div>
-        ) : (
+          <div style={{ color: "#334155", fontSize: 12 }}>Loading…</div>
+        ) : pings.length === 0 ? null : (
           <svg width="100%" height="100%" style={{ overflow: "visible" }}>
             <defs>
               <linearGradient id="speedGrad" x1="0" y1="0" x2="0" y2="1">

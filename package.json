@@ -9,13 +9,15 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@react-google-maps/api": "^2.20.8",
     "axios": "^1.13.5",
     "event-source-polyfill": "^1.0.31",
     "leaflet": "^1.9.4",
     "next": "16.1.6",
     "react": "19.2.3",
     "react-dom": "19.2.3",
-    "react-leaflet": "^5.0.0"
+    "react-leaflet": "^5.0.0",
+    "simplify-js": "^1.2.4"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

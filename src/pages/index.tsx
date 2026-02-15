@@ -2,16 +2,13 @@
 
 import dynamic from "next/dynamic";
 import { useEffect, useRef, useState } from "react";
-import VehicleList from "@/components/VehicleList";
+import TechniciansList from "@/components/TechniciansList";
 import StatsBar from "@/components/StatsBar";
-import TripHistory from "@/components/TripHistory";
-import AddVehicle from "@/components/AddVehicle";
-import AddDriver from "@/components/AddDriver";
 import { EventSourcePolyfill } from "event-source-polyfill";
 import { useRouter } from "next/navigation";
 
 // ✅ Use the real Vehicle type everywhere
-import type { Vehicle } from "@/types/vehicle";
+import type { Technician } from "@/types/technician";
 
 const LiveMap = dynamic(() => import("@/components/LiveMap"), { ssr: false });
 
@@ -20,32 +17,36 @@ const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 export default function Dashboard() {
   const router = useRouter();
   // ✅ State: record of Vehicle objects, keyed by _id
-  const [vehicles, setVehicles] = useState<Record<string, Vehicle>>({});
+  const [technicians, setTechnicians] = useState<Record<string, Technician>>(
+    {},
+  );
+  const [toPassTechnicians, setToPassTechnicians] = useState<Technician[]>([]); // ✅ Derived array for passing to components
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
-  const [showAddVehicle, setShowAddVehicle] = useState(false);
-  const [showAddDriver, setShowAddDriver] = useState(false);
   const [sseStatus, setSseStatus] = useState<"connecting" | "live" | "error">(
     "connecting",
   );
   const eventSourceRef = useRef<EventSource | null>(null);
 
   // ── Load initial vehicle list + latest positions ─────────────────────────
-  async function loadVehicles() {
+  async function loadTechnicians() {
     try {
       const data = await fetch(`${API}/api/locations/latest`, {
         headers: { "ngrok-skip-browser-warning": "true" },
       }).then((r) => r.json());
       // ✅ data is an array of Vehicle objects – convert to record
-      const record = Object.fromEntries(data.map((v: Vehicle) => [v._id, v]));
-      setVehicles(record);
+      const record = Object.fromEntries(
+        data.map((v: Technician) => [v._id, v]),
+      );
+      setToPassTechnicians(Object.values(record)); // ✅ Set derived array for components
+      setTechnicians(record);
     } catch (err) {
-      console.error("Failed to load vehicles:", err);
+      console.error("Failed to load technicians:", err);
     }
   }
 
   useEffect(() => {
-    loadVehicles();
+    loadTechnicians();
   }, []);
 
   // ── SSE live updates ─────────────────────────────────────────────────────
@@ -65,33 +66,33 @@ export default function Dashboard() {
       try {
         const update = JSON.parse(e.data);
         // ✅ update has flat fields: vehicleId, lat, lng, speed, heading, timestamp, ...
-        setVehicles((prev) => {
-          const vehicle = prev[update.vehicleId];
-          if (!vehicle) return prev; // ignore unknown vehicle
+        setTechnicians((prev) => {
+          const technician = prev[update.technicianId];
+          if (!technician) return prev; // ignore unknown technician
 
           // ✅ Transform flat update into nested lastSeen object
-          const updatedVehicle: Vehicle = {
-            ...vehicle,
+          const updatedTechnician: Technician = {
+            ...technician,
             // Update top‑level fields if provided (driverName, vehicleName, etc.)
-            name: update.vehicleName ?? vehicle.name,
-            plateNumber: update.vehiclePlateNumber ?? vehicle.plateNumber,
-            type: update.vehicleType ?? vehicle.type,
-            driverId: update.driverId ?? vehicle.driverId,
-            inShift: update.inUse ?? vehicle.inShift, // if your SSE sends `inUse`
+            name: update.Name ?? technician.name,
+            employeeId: update.vehicleemployeeId ?? technician.employeeId,
+
+            userId: update.userId ?? technician.userId,
+            inShift: update.inUse ?? technician.inShift, // if your SSE sends `inUse`
             // Update lastSeen – preserve existing fields if update doesn't include them
             lastSeen: {
-              ...(vehicle.lastSeen || {}),
-              lat: update.lat ?? vehicle.lastSeen?.lat,
-              lng: update.lng ?? vehicle.lastSeen?.lng,
-              speed: update.speed ?? vehicle.lastSeen?.speed,
-              heading: update.heading ?? vehicle.lastSeen?.heading,
-              timestamp: update.timestamp ?? vehicle.lastSeen?.timestamp,
+              ...(technician.lastSeen || {}),
+              lat: update.lat ?? technician.lastSeen?.lat,
+              lng: update.lng ?? technician.lastSeen?.lng,
+              speed: update.speed ?? technician.lastSeen?.speed,
+              heading: update.heading ?? technician.lastSeen?.heading,
+              timestamp: update.timestamp ?? technician.lastSeen?.timestamp,
             },
           };
 
           return {
             ...prev,
-            [update.vehicleId]: updatedVehicle,
+            [update.technicianId]: updatedTechnician,
           };
         });
       } catch (err) {
@@ -103,8 +104,17 @@ export default function Dashboard() {
   }, []);
 
   // ── Derived values ───────────────────────────────────────────────────────
-  const vehicleList = Object.values(vehicles);
-  const selectedVehicle = selectedId ? vehicles[selectedId] : null;
+  const selectedTechnician = selectedId ? technicians[selectedId] : null;
+  const [deviceOfSelected, setDeviceOfSelected] = useState<string>("");
+
+  useEffect(() => {
+    if (selectedTechnician && selectedTechnician.userId) {
+      const dv = toPassTechnicians.find(
+        (t) => t._id === selectedTechnician._id,
+      );
+      setDeviceOfSelected(dv?.userId?.deviceId || "Unknown");
+    }
+  }, [selectedTechnician]);
 
   return (
     <div className="flex h-screen flex-col bg-[#0A0E1A] text-slate-200 font-mono overflow-hidden">
@@ -123,7 +133,7 @@ export default function Dashboard() {
           </span>
         </div>
 
-        <StatsBar vehicles={vehicleList} />
+        <StatsBar technicians={toPassTechnicians} />
 
         <div className="ml-auto flex gap-2">
           <button
@@ -156,48 +166,48 @@ export default function Dashboard() {
         {/* Sidebar */}
         <aside className="w-[280px] flex-shrink-0 border-r border-[#1E2A45] bg-[#0D1220] flex flex-col overflow-y-auto">
           <div className="border-b border-[#1E2A45] px-4 py-3 text-[10px] uppercase tracking-[0.2em] text-slate-500">
-            Fleet ({vehicleList.length})
+            Fleet ({toPassTechnicians.length})
           </div>
 
-          <VehicleList
-            vehicles={vehicleList}
+          <TechniciansList
+            technicians={toPassTechnicians}
             selectedId={selectedId}
             onSelect={(id) => {
               setSelectedId(id);
-              setShowHistory(false); // close history when switching vehicles
+              setShowHistory(false); // close history when switching technicians
             }}
           />
 
           {/* ── Selected Vehicle Panel (now uses correct Vehicle fields) ── */}
-          {selectedVehicle && (
+          {selectedTechnician && (
             <div className="mt-auto border-t border-[#1E2A45] bg-[#0A0E1A] p-4">
-              <div className="text-sm font-bold">{selectedVehicle.name}</div>
+              <div className="text-sm font-bold">{selectedTechnician.name}</div>
 
-              {selectedVehicle.plateNumber && (
+              {selectedTechnician.employeeId && (
                 <div className="mt-1 inline-block rounded bg-[#1E2A45] px-2 py-0.5 text-[11px] tracking-widest text-slate-400">
-                  {selectedVehicle.plateNumber}
+                  {selectedTechnician.employeeId}
                 </div>
               )}
 
-              {/* Driver info – we only have driverId, not name */}
+              {/* Driver info – we only have userId, not name */}
               <div
                 className={`mt-3 flex items-center gap-2 rounded-md border px-2.5 py-2 ${
-                  selectedVehicle.driverId
+                  selectedTechnician.userId
                     ? "border-emerald-500/30 bg-emerald-900/30"
                     : "border-[#1E2A45] bg-[#131929]"
                 }`}
               >
-                <span>👤</span>
+                <span>📱</span>
                 <span
                   className={`text-xs font-semibold ${
-                    selectedVehicle.driverId
+                    selectedTechnician.userId
                       ? "text-emerald-400"
                       : "text-slate-400"
                   }`}
                 >
-                  {selectedVehicle.driverId
-                    ? `Driver ID: ${selectedVehicle.driverId.slice(-4)}`
-                    : "No driver assigned"}
+                  {selectedTechnician.userId
+                    ? ` ${deviceOfSelected}`
+                    : "No device assigned"}
                 </span>
               </div>
 
@@ -205,23 +215,23 @@ export default function Dashboard() {
                 {[
                   [
                     "Speed",
-                    `${selectedVehicle.lastSeen?.speed?.toFixed(0) ?? 0} km/h`,
+                    `${selectedTechnician.lastSeen?.speed?.toFixed(0) ?? 0} km/h`,
                   ],
                   [
                     "Heading",
-                    `${selectedVehicle.lastSeen?.heading?.toFixed(0) ?? "–"}°`,
+                    `${selectedTechnician.lastSeen?.heading?.toFixed(0) ?? "–"}°`,
                   ],
                   [
                     "Last Ping",
-                    selectedVehicle.lastSeen?.timestamp
+                    selectedTechnician.lastSeen?.timestamp
                       ? new Date(
-                          selectedVehicle.lastSeen.timestamp,
+                          selectedTechnician.lastSeen.timestamp,
                         ).toLocaleTimeString()
                       : "–",
                   ],
                   [
                     "Status",
-                    selectedVehicle.inShift ? "On Shift" : "Available",
+                    selectedTechnician.inShift ? "On Shift" : "Available",
                   ],
                 ].map(([label, value]) => (
                   <div key={label} className="rounded-md bg-[#131929] p-2">
@@ -234,13 +244,6 @@ export default function Dashboard() {
                   </div>
                 ))}
               </div>
-
-              <button
-                onClick={() => setShowHistory(!showHistory)}
-                className="mt-3 w-full rounded-md border border-[#1E2A45] py-2 text-[11px] tracking-wider text-slate-400 hover:border-sky-400 hover:text-sky-400 transition"
-              >
-                {showHistory ? "Hide History" : "📍 View Trip History"}
-              </button>
             </div>
           )}
         </aside>
@@ -248,13 +251,10 @@ export default function Dashboard() {
         {/* Map Section */}
         <section className="relative flex flex-1 flex-col overflow-hidden">
           <LiveMap
-            vehicles={vehicleList}
+            technicians={toPassTechnicians}
             selectedId={selectedId}
-            onVehicleClick={setSelectedId}
+            onTechnicianClick={setSelectedId}
           />
-          {showHistory && selectedId && (
-            <TripHistory vehicleId={selectedId} apiBase={API} />
-          )}
         </section>
       </main>
     </div>

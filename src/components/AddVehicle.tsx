@@ -13,22 +13,22 @@ interface Props {
   onClose: () => void;
 }
 
-export default function AddVehicle({ apiBase, onAdded, onClose }: Props) {
+export default function AddTechnician({ apiBase, onAdded, onClose }: Props) {
   const [name, setName] = useState("");
-  const [plateNumber, setPlateNumber] = useState("");
+  const [employeeId, setEmployeeId] = useState("");
   const [type, setType] = useState("car");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   async function handleSubmit() {
-    if (!name.trim()) {
-      setError("Vehicle name is required");
+    if (!name.trim() || !employeeId.trim()) {
+      setError("Technician name and employee ID are required");
       return;
     }
     setSaving(true);
     setError("");
     try {
-      const res = await fetch(`${apiBase}/api/vehicles`, {
+      const res = await fetch(`${apiBase}/api/technicians`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -36,8 +36,7 @@ export default function AddVehicle({ apiBase, onAdded, onClose }: Props) {
         },
         body: JSON.stringify({
           name: name.trim(),
-          plateNumber: plateNumber.trim(),
-          type,
+          employeeId: employeeId.trim(),
         }),
       });
       if (!res.ok) throw new Error(await res.text());
@@ -80,7 +79,7 @@ export default function AddVehicle({ apiBase, onAdded, onClose }: Props) {
           }}
         >
           <span style={{ fontSize: 14, fontWeight: 700, color: "#E2E8F0" }}>
-            Add Vehicle
+            Add Technician
           </span>
           <button
             onClick={onClose}
@@ -96,36 +95,22 @@ export default function AddVehicle({ apiBase, onAdded, onClose }: Props) {
           </button>
         </div>
 
-        <Field label="VEHICLE NAME *">
+        <Field label="TECHNICIAN NAME *">
           <input
             style={inputStyle}
-            placeholder="e.g. Toyota Hilux - Blue"
+            placeholder="e.g. John Doe"
             value={name}
             onChange={(e) => setName(e.target.value)}
           />
         </Field>
 
-        <Field label="PLATE NUMBER">
+        <Field label="EMPLOYEE ID">
           <input
             style={inputStyle}
-            placeholder="e.g. KCB 123A"
-            value={plateNumber}
-            onChange={(e) => setPlateNumber(e.target.value.toUpperCase())}
+            placeholder="e.g. EMP-001 "
+            value={employeeId}
+            onChange={(e) => setEmployeeId(e.target.value.toUpperCase())}
           />
-        </Field>
-
-        <Field label="TYPE">
-          <select
-            style={{ ...inputStyle, cursor: "pointer" }}
-            value={type}
-            onChange={(e) => setType(e.target.value)}
-          >
-            <option value="car">🚗 Car</option>
-            <option value="van">🚐 Van</option>
-            <option value="truck">🚛 Truck</option>
-            <option value="motorcycle">🏍 Motorcycle</option>
-            <option value="other">🚙 Other</option>
-          </select>
         </Field>
 
         {error && (
@@ -150,7 +135,7 @@ export default function AddVehicle({ apiBase, onAdded, onClose }: Props) {
             fontFamily: "inherit",
           }}
         >
-          {saving ? "Saving…" : "Add Vehicle"}
+          {saving ? "Saving…" : "Add Technician"}
         </button>
       </div>
 

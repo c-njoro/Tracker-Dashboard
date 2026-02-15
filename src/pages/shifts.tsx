@@ -2,22 +2,28 @@
 
 import { useEffect, useState } from "react";
 import axios from "axios";
-import { Vehicle } from "@/types/vehicle";
-import { Driver } from "@/types/driver";
-import { Shift } from "@/types/shift";
+import { Technician } from "@/types/technician";
+import { User } from "@/types/user";
 import { ActiveShift } from "@/types/activeShifts";
 import AddVehicle from "@/components/AddVehicle";
+import TripHistory from "@/components/TripHistory";
+import { Response } from "@/types/response";
+import { useRouter } from "next/navigation";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 
 export default function ShiftsDashboard() {
-  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
-  const [drivers, setDrivers] = useState<Driver[]>([]);
+  const router = useRouter();
+  const [technicians, setTechnicians] = useState<Technician[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
   const [shifts, setShifts] = useState<ActiveShift[]>([]);
-  const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
-  const [selectedDriver, setSelectedDriver] = useState<Driver | null>(null);
+  const [selectedTechnician, setSelectedTechnician] =
+    useState<Technician | null>(null);
   const [waiting, setWaiting] = useState(false);
   const [showAddVehicle, setShowAddVehicle] = useState(false);
+  const [selectedShiftForHistory, setSelectedShiftForHistory] =
+    useState<ActiveShift | null>(null);
+
   // ── Tab state ────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<"active" | "all">("active");
 
@@ -27,7 +33,7 @@ export default function ShiftsDashboard() {
   // ── Filtered shifts based on date ───────────────────────────────────
   const filteredByDate = shifts.filter((shift) => {
     if (!filterDate) return true;
-    const shiftDate = new Date(shift.timeStarted).toISOString().split("T")[0]; // YYYY-MM-DD
+    const shiftDate = new Date(shift.timeStarted).toISOString().split("T")[0];
     return shiftDate === filterDate;
   });
 
@@ -38,79 +44,77 @@ export default function ShiftsDashboard() {
       : filteredByDate;
 
   // ── Data loading ─────────────────────────────────────────────────────
-  async function loadVehicles() {
+  async function loadTechnicians() {
     try {
-      const res = await axios.get(`${API}/api/vehicles`, {
+      const { data } = await axios.get<Response>(`${API}/api/technicians`, {
         headers: { "ngrok-skip-browser-warning": "true" },
       });
-      if (res.data.success) setVehicles(res.data.data);
+      if (data.success) setTechnicians(data.data);
     } catch (err) {
-      console.error("Failed to load vehicles:", err);
+      console.error("Failed to load technicians:", err);
     }
   }
 
-  async function loadDrivers() {
+  async function loadUsers() {
     try {
-      const res = await axios.get(`${API}/api/drivers`, {
+      const { data } = await axios.get<Response>(`${API}/api/users`, {
         headers: { "ngrok-skip-browser-warning": "true" },
       });
-      if (res.data.success) setDrivers(res.data.data);
+      if (data.success) setUsers(data.data);
     } catch (err) {
-      console.error("Failed to load drivers:", err);
+      console.error("Failed to load users:", err);
     }
   }
 
   async function loadShifts() {
     try {
-      const res = await axios.get(`${API}/api/shifts`, {
+      const { data } = await axios.get<Response>(`${API}/api/shifts`, {
         headers: { "ngrok-skip-browser-warning": "true" },
       });
-      if (res.data.success) setShifts(res.data.data);
+      if (data.success) setShifts(data.data);
     } catch (err) {
       console.error("Failed to load shifts:", err);
     }
   }
 
   useEffect(() => {
-    loadVehicles();
-    loadDrivers();
+    loadTechnicians();
+    loadUsers();
     loadShifts();
   }, []);
 
+  useEffect(() => {
+    console.log("Technicians:", technicians);
+    console.log("Users:", users);
+    console.log("Shifts:", shifts);
+  }, [technicians, users, shifts]);
+
   // ── Shift actions ─────────────────────────────────────────────────────
   const startShift = async () => {
-    if (!selectedVehicle || !selectedDriver) {
-      alert("Please select both a vehicle and a driver.");
+    if (!selectedTechnician) {
+      alert("Please select a technician.");
       return;
     }
-    console.log("Starting shift with:", {
-      vehicleId: selectedVehicle._id,
-      driverId: selectedDriver._id,
-      APIEndpoint: `${API}/api/shifts/newShift`,
-    });
+    if (!selectedTechnician.userId) {
+      alert("Selected technician has not registered on the tracker app.");
+      return;
+    }
 
     try {
       setWaiting(true);
-      const res = await axios.post(
+      const { data } = await axios.post<Response>(
         `${API}/api/shifts/newShift`,
-        {
-          vehicleId: selectedVehicle._id,
-          driverId: selectedDriver._id,
-        },
+        { employeeId: selectedTechnician.employeeId },
         { headers: { "ngrok-skip-browser-warning": "true" } },
       );
 
-      if (!res.data.success) {
-        alert("Failed to start shift: " + res.data.message);
-        return;
+      if (data.success) {
+        alert("Shift started successfully!");
+        setSelectedTechnician(null);
+        await Promise.all([loadTechnicians(), loadUsers(), loadShifts()]);
+      } else {
+        alert("Failed to start shift: " + data.message);
       }
-
-      alert("Shift started successfully!");
-      setSelectedVehicle(null);
-      setSelectedDriver(null);
-      loadVehicles();
-      loadDrivers();
-      loadShifts();
     } catch (err) {
       console.error("Error starting shift:", err);
       alert("An error occurred while starting the shift.");
@@ -127,21 +131,18 @@ export default function ShiftsDashboard() {
 
     try {
       setWaiting(true);
-      const res = await axios.post(
+      const { data } = await axios.post<Response>(
         `${API}/api/shifts/${shiftId}/endShift`,
         {},
         { headers: { "ngrok-skip-browser-warning": "true" } },
       );
 
-      if (!res.data.success) {
-        alert("Failed to end shift: " + res.data.message);
-        return;
+      if (data.success) {
+        alert("Shift ended successfully!");
+        await Promise.all([loadTechnicians(), loadUsers(), loadShifts()]);
+      } else {
+        alert("Failed to end shift: " + data.message);
       }
-
-      alert("Shift ended successfully!");
-      loadVehicles();
-      loadDrivers();
-      loadShifts();
     } catch (err) {
       console.error("Error ending shift:", err);
       alert("An error occurred while ending the shift.");
@@ -158,21 +159,18 @@ export default function ShiftsDashboard() {
 
     try {
       setWaiting(true);
-      const res = await axios.post(
+      const { data } = await axios.post<Response>(
         `${API}/api/shifts/endAll`,
         {},
         { headers: { "ngrok-skip-browser-warning": "true" } },
       );
 
-      if (!res.data.success) {
-        alert("Failed to end all shifts: " + res.data.message);
-        return;
+      if (data.success) {
+        alert("All shifts ended successfully!");
+        await Promise.all([loadTechnicians(), loadUsers(), loadShifts()]);
+      } else {
+        alert("Failed to end all shifts: " + data.message);
       }
-
-      alert("All shifts ended successfully!");
-      loadVehicles();
-      loadDrivers();
-      loadShifts();
     } catch (err) {
       console.error("Error ending all shifts:", err);
       alert("An error occurred while ending all shifts.");
@@ -181,11 +179,12 @@ export default function ShiftsDashboard() {
     }
   };
 
-  // ── Filter available vehicles and drivers ─────────────────────────────
-  // Vehicles are available if they are NOT currently in a shift (driverId === null)
-  const availableVehicles = vehicles.filter((v) => v.driverId === null);
-  // Drivers are available if they are NOT on shift
-  const availableDrivers = drivers.filter((d) => !d.onShift);
+  // ── Filter available technicians and users ─────────────────────────────
+  // technicians are available if they are NOT currently in a shift (userId !== null)
+  const registeredTechnicians =
+    technicians?.filter(
+      (v) => v.userId !== null && v.isActive === true && v.inShift === false,
+    ) || [];
 
   // Active shifts (isActive === true)
   const activeShifts = shifts.filter((s) => s.isActive);
@@ -199,10 +198,16 @@ export default function ShiftsDashboard() {
         </div>
         <nav className="flex flex-col gap-2">
           <button
+            onClick={() => router.push("/")}
+            className="w-full text-left px-4 py-2 rounded border border-[#1E2A45] text-sm hover:border-sky-400 hover:text-sky-400 transition"
+          >
+            📍 Live Map
+          </button>
+          <button
             onClick={() => setShowAddVehicle(true)}
             className="w-full text-left px-4 py-2 rounded border border-[#1E2A45] text-sm hover:border-sky-400 hover:text-sky-400 transition"
           >
-            + Add Vehicle
+            + Add Technician
           </button>
           <button
             onClick={endAllShifts}
@@ -222,59 +227,35 @@ export default function ShiftsDashboard() {
         {/* Create Shift Card */}
         <div className="bg-[#0D1220] border border-[#1E2A45] rounded-lg p-6 mb-8">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400 mb-4">
-            Create New Shift
+            Initiate A Shift Manually
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Vehicle dropdown */}
+            {/* Technician dropdown */}
             <div>
               <label className="block text-xs uppercase tracking-wider text-slate-500 mb-2">
-                Vehicle
+                Technician
               </label>
               <select
                 className="w-full bg-[#131929] border border-[#1E2A45] rounded px-4 py-2 text-sm"
-                value={selectedVehicle?._id || ""}
+                value={selectedTechnician?._id || ""}
                 onChange={(e) => {
-                  const v = vehicles.find((v) => v._id === e.target.value);
-                  setSelectedVehicle(v || null);
+                  const tech = technicians.find(
+                    (v) => v._id === e.target.value,
+                  );
+                  setSelectedTechnician(tech || null);
                 }}
               >
-                <option value="">Select a vehicle</option>
-                {availableVehicles.map((v) => (
-                  <option key={v._id} value={v._id}>
-                    {v.name} {v.plateNumber ? `(${v.plateNumber})` : ""}
+                <option value="">Select a technician</option>
+                {registeredTechnicians.map((tech) => (
+                  <option key={tech._id} value={tech._id}>
+                    {tech.name} | {tech.employeeId} |{" "}
+                    {tech.userId?.deviceId || "Unknown Device"}
                   </option>
                 ))}
               </select>
-              {availableVehicles.length === 0 && (
+              {registeredTechnicians.length === 0 && (
                 <p className="text-xs text-amber-400 mt-2">
-                  No vehicles available
-                </p>
-              )}
-            </div>
-
-            {/* Driver dropdown */}
-            <div>
-              <label className="block text-xs uppercase tracking-wider text-slate-500 mb-2">
-                Driver
-              </label>
-              <select
-                className="w-full bg-[#131929] border border-[#1E2A45] rounded px-4 py-2 text-sm"
-                value={selectedDriver?._id || ""}
-                onChange={(e) => {
-                  const d = drivers.find((d) => d._id === e.target.value);
-                  setSelectedDriver(d || null);
-                }}
-              >
-                <option value="">Select a driver</option>
-                {availableDrivers.map((d) => (
-                  <option key={d._id} value={d._id}>
-                    {d.name} {d.employeeId ? `(${d.employeeId})` : ""}
-                  </option>
-                ))}
-              </select>
-              {availableDrivers.length === 0 && (
-                <p className="text-xs text-amber-400 mt-2">
-                  No drivers available
+                  No technicians available for a shift.
                 </p>
               )}
             </div>
@@ -282,7 +263,7 @@ export default function ShiftsDashboard() {
 
           <button
             onClick={startShift}
-            disabled={waiting || !selectedVehicle || !selectedDriver}
+            disabled={waiting || !selectedTechnician}
             className="mt-6 px-6 py-2 bg-sky-600 hover:bg-sky-700 disabled:bg-slate-700 disabled:cursor-not-allowed rounded text-sm font-semibold transition"
           >
             {waiting ? "Processing…" : "Start Shift"}
@@ -352,9 +333,9 @@ export default function ShiftsDashboard() {
               >
                 <div>
                   <p className="text-sm font-medium">
-                    {shift.vehicleId?.name || "Unknown vehicle"} ·{" "}
-                    {shift.vehicleId?.plateNumber || "Unknown plate"} ·{" "}
-                    {shift.driverId?.name || "Unknown driver"}
+                    {shift.technicianId?.name || "Unknown technician"} ·{" "}
+                    {shift.technicianId?.employeeId || "Unknown EmployeeId"} ·{" "}
+                    {shift.userId?.deviceId || "Unknown Device"}
                   </p>
                   <p className="text-xs text-slate-500 mt-1">
                     Started: {new Date(shift.timeStarted).toLocaleString()}
@@ -366,27 +347,58 @@ export default function ShiftsDashboard() {
                     )}
                   </p>
                 </div>
-                {shift.isActive && (
+                <div className="flex gap-2">
                   <button
-                    onClick={() => endShift(shift._id)}
-                    disabled={waiting}
-                    className="px-4 py-1 border border-red-500/30 text-red-400 hover:bg-red-950 rounded text-xs disabled:opacity-50 transition"
+                    onClick={() => setSelectedShiftForHistory(shift)}
+                    className="px-3 py-1 border border-sky-500/30 text-sky-400 hover:bg-sky-950 rounded text-xs"
                   >
-                    End
+                    📜 Trip
                   </button>
-                )}
+                  {shift.isActive && (
+                    <button
+                      onClick={() => endShift(shift._id)}
+                      disabled={waiting}
+                      className="px-4 py-1 border border-red-500/30 text-red-400 hover:bg-red-950 rounded text-xs disabled:opacity-50"
+                    >
+                      End
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>
         )}
       </main>
 
-      {/* Add Vehicle Modal */}
+      {/* Trip History Modal */}
+      {selectedShiftForHistory && (
+        <TripHistory
+          technicianId={selectedShiftForHistory.technicianId._id}
+          apiBase={API}
+          from={selectedShiftForHistory.timeStarted}
+          to={
+            selectedShiftForHistory.isActive
+              ? undefined
+              : selectedShiftForHistory.timeEnded!
+          }
+          shiftInfo={{
+            technicianName: selectedShiftForHistory.technicianId.name,
+            employeeId: selectedShiftForHistory.technicianId.employeeId,
+            userDevice: selectedShiftForHistory.userId.deviceId,
+            isActive: selectedShiftForHistory.isActive,
+            startedAt: selectedShiftForHistory.timeStarted,
+            endedAt: selectedShiftForHistory.timeEnded,
+          }}
+          onClose={() => setSelectedShiftForHistory(null)}
+        />
+      )}
+
+      {/* Add Technician Modal */}
       {showAddVehicle && (
         <AddVehicle
           apiBase={API}
           onAdded={() => {
-            loadVehicles();
+            loadTechnicians();
             setShowAddVehicle(false);
           }}
           onClose={() => setShowAddVehicle(false)}

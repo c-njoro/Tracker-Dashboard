@@ -2,34 +2,60 @@
 
 /**
  * components/LiveMap.tsx
- * Leaflet map showing all vehicles with directional arrows.
- * Smoothly animates marker positions when they update.
- * Now compatible with the actual API response (Vehicle model + lastSeen).
+ * Leaflet map showing all technicians with directional arrows.
+ * Supports toggling between street map and satellite view.
  */
 
-import { useEffect, useRef } from "react";
-import { Vehicle } from "@/types/vehicle";
+import { useEffect, useRef, useState } from "react";
+import { Technician } from "@/types/technician";
 
 let L: any = null;
 
-const VEHICLE_COLORS: Record<string, string> = {
-  truck: "#FF6B35",
-  van: "#4ECDC4",
-  car: "#38BDF8",
-  motorcycle: "#A78BFA",
-  other: "#94A3B8",
-};
+const TECHNICIAN_COLORS = [
+  "#FF6B35", // orange
+  "#4ECDC4", // teal
+  "#38BDF8", // blue
+  "#A78BFA", // purple
+  "#22C55E", // green
+  "#F97316", // amber
+  "#EC4899", // pink
+  "#EAB308", // yellow
+  "#06B6D4", // cyan
+  "#8B5CF6", // violet
+];
 
-function createVehicleIcon(vehicle: Vehicle, selected: boolean) {
-  const color = VEHICLE_COLORS[vehicle.type] || "#94A3B8";
+function hashStringToIndex(str: string, modulo: number) {
+  let hash = 0;
+
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash << 5) - hash + str.charCodeAt(i);
+    hash |= 0; // force 32-bit
+  }
+
+  return Math.abs(hash) % modulo;
+}
+
+function getTechnicianColor(technicianId: string) {
+  const index = hashStringToIndex(technicianId, TECHNICIAN_COLORS.length);
+  return TECHNICIAN_COLORS[index];
+}
+
+function createTechnicianIcon(technician: Technician, selected: boolean) {
+  const color = getTechnicianColor(technician._id);
   const size = selected ? 44 : 36;
-  const heading = vehicle.lastSeen?.heading ?? 0;
+  const heading = technician.lastSeen?.heading ?? 0;
 
   const svg = `
     <svg width="${size}" height="${size}" viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg">
-      ${selected ? `<circle cx="22" cy="22" r="20" fill="${color}22" stroke="${color}55" stroke-width="1"/>` : ""}
+      ${
+        selected
+          ? `<circle cx="22" cy="22" r="20" fill="${color}22" stroke="${color}55" stroke-width="1"/>`
+          : ""
+      }
       <circle cx="22" cy="22" r="12" fill="${color}" stroke="#0A0E1A" stroke-width="2"/>
-      <path d="M22 10 L26 18 L22 15 L18 18 Z" fill="#0A0E1A" transform="rotate(${heading}, 22, 22)"/>
+      <path d="M22 10 L26 18 L22 15 L18 18 Z"
+            fill="#0A0E1A"
+            transform="rotate(${heading}, 22, 22)"/>
     </svg>`;
 
   return L.divIcon({
@@ -41,22 +67,51 @@ function createVehicleIcon(vehicle: Vehicle, selected: boolean) {
   });
 }
 
+// ── Tile layer definitions ─────────────────────────────────────────────────────
+const TILE_LAYERS = {
+  map: {
+    url: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager_labels_under/{z}/{x}/{y}{r}.png",
+    attribution: "© OpenStreetMap, © CartoDB",
+    maxZoom: 19,
+  },
+  satellite: {
+    // ESRI World Imagery — free, no API key required
+    url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    attribution: "© Esri, Maxar, Earthstar Geographics",
+    maxZoom: 19,
+  },
+  // Satellite + labels on top (hybrid feel)
+  hybrid: {
+    url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    labelsUrl:
+      "https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png",
+    attribution: "© Esri, © OpenStreetMap, © CartoDB",
+    maxZoom: 19,
+  },
+};
+
+type LayerMode = "map" | "satellite" | "hybrid";
+
 interface Props {
-  vehicles: Vehicle[]; // ✅ now uses the correct type
+  technicians: Technician[];
   selectedId: string | null;
-  onVehicleClick: (id: string) => void;
+  onTechnicianClick: (id: string) => void;
 }
 
 export default function LiveMap({
-  vehicles,
+  technicians,
   selectedId,
-  onVehicleClick,
+  onTechnicianClick,
 }: Props) {
   const mapRef = useRef<any>(null);
   const markersRef = useRef<Record<string, any>>({});
   const containerRef = useRef<HTMLDivElement>(null);
+  const tileLayerRef = useRef<any>(null); // base satellite/map tile
+  const labelLayerRef = useRef<any>(null); // labels overlay (hybrid only)
 
-  // ── Initialize Map ──────────────────────────────────────────────────────
+  const [layerMode, setLayerMode] = useState<LayerMode>("map");
+
+  // ── Initialize Map ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
 
@@ -66,7 +121,6 @@ export default function LiveMap({
       const leaflet = await import("leaflet");
       L = leaflet.default;
 
-      // Clean existing instance (prevents React‑Leaflet conflict)
       const container = containerRef.current as any;
       if (container._leaflet_id) {
         container._leaflet_id = null;
@@ -81,16 +135,13 @@ export default function LiveMap({
         attributionControl: false,
       });
 
-      L.tileLayer(
-        "https://{s}.basemaps.cartocdn.com/rastertiles/voyager_labels_under/{z}/{x}/{y}{r}.png",
-        {
-          maxZoom: 19,
-          attribution: "© OpenStreetMap, © CartoDB",
-        },
-      ).addTo(map);
+      // Start with street map
+      tileLayerRef.current = L.tileLayer(TILE_LAYERS.map.url, {
+        maxZoom: TILE_LAYERS.map.maxZoom,
+        attribution: TILE_LAYERS.map.attribution,
+      }).addTo(map);
 
       L.control.attribution({ prefix: false }).addTo(map);
-
       mapRef.current = map;
     })();
 
@@ -103,92 +154,189 @@ export default function LiveMap({
     };
   }, []);
 
-  // ── Update Markers ──────────────────────────────────────────────────────
+  // ── Switch tile layer when layerMode changes ────────────────────────────────
   useEffect(() => {
     if (!mapRef.current || !L) return;
     const map = mapRef.current;
 
-    vehicles.forEach((vehicle) => {
-      // Skip vehicles without a valid location
-      // In the marker update useEffect, inside vehicles.forEach:
-      if (!vehicle.lastSeen?.lat || !vehicle.lastSeen?.lng) return; // already present
+    // Remove current base layer
+    if (tileLayerRef.current) {
+      map.removeLayer(tileLayerRef.current);
+      tileLayerRef.current = null;
+    }
+    // Remove label overlay if any
+    if (labelLayerRef.current) {
+      map.removeLayer(labelLayerRef.current);
+      labelLayerRef.current = null;
+    }
 
-      const latlng = [vehicle.lastSeen.lat, vehicle.lastSeen.lng];
-      const icon = createVehicleIcon(vehicle, vehicle._id === selectedId);
+    if (layerMode === "map") {
+      tileLayerRef.current = L.tileLayer(TILE_LAYERS.map.url, {
+        maxZoom: TILE_LAYERS.map.maxZoom,
+        attribution: TILE_LAYERS.map.attribution,
+      }).addTo(map);
+    } else if (layerMode === "satellite") {
+      tileLayerRef.current = L.tileLayer(TILE_LAYERS.satellite.url, {
+        maxZoom: TILE_LAYERS.satellite.maxZoom,
+        attribution: TILE_LAYERS.satellite.attribution,
+      }).addTo(map);
+    } else {
+      // Hybrid: satellite base + labels on top
+      tileLayerRef.current = L.tileLayer(TILE_LAYERS.hybrid.url, {
+        maxZoom: TILE_LAYERS.hybrid.maxZoom,
+        attribution: TILE_LAYERS.hybrid.attribution,
+      }).addTo(map);
 
-      if (markersRef.current[vehicle._id]) {
-        // Update existing marker
-        const marker = markersRef.current[vehicle._id];
+      labelLayerRef.current = L.tileLayer(TILE_LAYERS.hybrid.labelsUrl!, {
+        maxZoom: TILE_LAYERS.hybrid.maxZoom,
+        opacity: 1,
+      }).addTo(map);
+    }
+
+    // Bring all technician markers back to front after layer swap
+    Object.values(markersRef.current).forEach((marker) => {
+      marker.bringToFront?.();
+    });
+  }, [layerMode]);
+
+  // ── Update Markers ──────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!mapRef.current || !L) return;
+    const map = mapRef.current;
+
+    technicians.forEach((technician) => {
+      if (!technician.lastSeen?.lat || !technician.lastSeen?.lng) return;
+
+      const latlng = [technician.lastSeen.lat, technician.lastSeen.lng];
+      const icon = createTechnicianIcon(
+        technician,
+        technician._id === selectedId,
+      );
+
+      if (markersRef.current[technician._id]) {
+        const marker = markersRef.current[technician._id];
         marker.setLatLng(latlng as any);
         marker.setIcon(icon);
       } else {
-        // Create new marker
         const marker = L.marker(latlng as any, { icon })
           .addTo(map)
-          .on("click", () => onVehicleClick(vehicle._id));
-
-        markersRef.current[vehicle._id] = marker;
+          .on("click", () => onTechnicianClick(technician._id));
+        markersRef.current[technician._id] = marker;
       }
 
-      // Update popup content (driver name removed – only driverId if present)
-      const driverInfo = vehicle.driverId
-        ? `<div style="font-size: 11px; color: #94A3B8;">👤 Driver: ${vehicle.driverId.slice(-4)}</div>`
+      const userInfo = technician.userId
+        ? `<div style="font-size: 11px; color: #94A3B8;">Devie: ${technician.userId.deviceId}</div>`
         : '<div style="font-size: 11px; color: #64748B;">No driver</div>';
 
       const popup = `
         <div style="font-family: 'JetBrains Mono', monospace; background: #0D1220; color: #E2E8F0; padding: 10px; border-radius: 6px; min-width: 160px;">
-          <div style="font-weight: 700; margin-bottom: 6px; color: ${VEHICLE_COLORS[vehicle.type] || "#94A3B8"}">
-            ${vehicle.name}
+          <div style="font-weight: 700; margin-bottom: 6px; color: ${getTechnicianColor(technician._id)}">
+            ${technician.name}
           </div>
-          ${
-            vehicle.plateNumber
-              ? `<div style="font-size: 11px; color: #64748B; margin-bottom: 4px;">${vehicle.plateNumber}</div>`
-              : ""
-          }
+          ${technician.employeeId ? `<div style="font-size: 11px; color: #64748B; margin-bottom: 4px;">${technician.employeeId}</div>` : ""}
           <div style="font-size: 13px;">
-            🏎 ${vehicle.lastSeen?.speed?.toFixed(0) ?? 0} km/h &nbsp; ↗ ${
-              vehicle.lastSeen?.heading?.toFixed(0) ?? "–"
-            }°
+            🎯 ${technician.lastSeen?.speed?.toFixed(0) ?? 0} km/h &nbsp; ↗ ${technician.lastSeen?.heading?.toFixed(0) ?? "—"}°
           </div>
-          ${driverInfo}
+          ${userInfo}
           <div style="font-size: 11px; color: #475569; margin-top: 4px;">
-            ${vehicle.lastSeen?.timestamp ? new Date(vehicle.lastSeen.timestamp).toLocaleTimeString() : ""}
+            ${technician.lastSeen?.timestamp ? new Date(technician.lastSeen.timestamp).toLocaleTimeString() : ""}
           </div>
         </div>`;
 
-      markersRef.current[vehicle._id].bindPopup(popup, {
+      markersRef.current[technician._id].bindPopup(popup, {
         className: "fleet-popup",
         closeButton: false,
       });
     });
 
-    // Remove stale markers (vehicles no longer in list)
+    // Remove stale markers
     Object.keys(markersRef.current).forEach((id) => {
-      if (!vehicles.find((v) => v._id === id)) {
+      if (!technicians.find((v) => v._id === id)) {
         markersRef.current[id].remove();
         delete markersRef.current[id];
       }
     });
-  }, [vehicles, selectedId, onVehicleClick]);
+  }, [technicians, selectedId, onTechnicianClick]);
 
-  // ── Pan to selected vehicle ─────────────────────────────────────────────
+  // ── Pan to selected technician ─────────────────────────────────────────────────
   useEffect(() => {
     if (!mapRef.current || !selectedId) return;
-    const vehicle = vehicles.find((v) => v._id === selectedId);
-    if (vehicle?.lastSeen?.lat && vehicle?.lastSeen?.lng) {
-      mapRef.current.flyTo([vehicle.lastSeen.lat, vehicle.lastSeen.lng], 15, {
-        animate: true,
-        duration: 0.8,
-      });
+    const technician = technicians.find((v) => v._id === selectedId);
+    if (technician?.lastSeen?.lat && technician?.lastSeen?.lng) {
+      mapRef.current.flyTo(
+        [technician.lastSeen.lat, technician.lastSeen.lng],
+        15,
+        {
+          animate: true,
+          duration: 0.8,
+        },
+      );
     }
-  }, [selectedId, vehicles]);
+  }, [selectedId, technicians]);
+
+  // ── Layer toggle button labels ──────────────────────────────────────────────
+  const LAYER_CYCLE: LayerMode[] = ["map", "satellite", "hybrid"];
+  const LAYER_LABELS: Record<LayerMode, string> = {
+    map: "🗺 Map",
+    satellite: "🛰 Satellite",
+    hybrid: "🛰 Hybrid",
+  };
+  const LAYER_NEXT: Record<LayerMode, LayerMode> = {
+    map: "satellite",
+    satellite: "hybrid",
+    hybrid: "map",
+  };
 
   return (
     <>
       <div
-        ref={containerRef}
-        style={{ flex: 1, width: "100%", minHeight: "400px" }}
-      />
+        style={{
+          position: "relative",
+          flex: 1,
+          width: "100%",
+          minHeight: "400px",
+        }}
+      >
+        <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
+
+        {/* Layer toggle button — top right, above Leaflet zoom controls */}
+        <div
+          style={{
+            position: "absolute",
+            top: 10,
+            right: 10,
+            zIndex: 1000,
+            display: "flex",
+            flexDirection: "column",
+            gap: 4,
+          }}
+        >
+          {LAYER_CYCLE.map((mode) => (
+            <button
+              key={mode}
+              onClick={() => setLayerMode(mode)}
+              style={{
+                padding: "6px 12px",
+                borderRadius: 6,
+                border: `1px solid ${layerMode === mode ? "#38BDF8" : "#1E2A45"}`,
+                background: layerMode === mode ? "#0D2137" : "#0D1220CC",
+                color: layerMode === mode ? "#38BDF8" : "#64748B",
+                fontSize: 11,
+                fontFamily: "inherit",
+                fontWeight: layerMode === mode ? 700 : 400,
+                cursor: "pointer",
+                backdropFilter: "blur(4px)",
+                letterSpacing: "0.5px",
+                whiteSpace: "nowrap",
+                transition: "all 0.15s",
+              }}
+            >
+              {LAYER_LABELS[mode]}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <style jsx global>{`
         .fleet-popup .leaflet-popup-content-wrapper {
           background: transparent !important;

@@ -1,36 +1,32 @@
 "use client";
 
-import type { Vehicle } from "@/types/vehicle";
-
-const TYPE_EMOJI: Record<Vehicle["type"], string> = {
-  truck: "🚛",
-  van: "🚐",
-  car: "🚗",
-  motorcycle: "🏍",
-  other: "🚙",
-};
+import type { Technician } from "@/types/technician";
 
 interface Props {
-  vehicles: Vehicle[];
+  technicians: Technician[];
   selectedId: string | null;
   onSelect: (id: string) => void;
 }
 
-export default function VehicleList({ vehicles, selectedId, onSelect }: Props) {
-  if (vehicles.length === 0) {
+export default function TechniciansList({
+  technicians,
+  selectedId,
+  onSelect,
+}: Props) {
+  if (technicians.length === 0) {
     return (
       <div className="px-4 py-6 text-center text-xs text-slate-400">
-        No vehicles online
+        No technicians online
       </div>
     );
   }
 
   return (
     <div>
-      {vehicles.map((v) => {
-        const isSelected = v._id === selectedId;
+      {technicians.map((t) => {
+        const isSelected = t._id === selectedId;
 
-        const lastSeen = v.lastSeen;
+        const lastSeen = t.lastSeen;
         const speed = lastSeen?.speed ?? 0;
 
         const age = lastSeen?.timestamp
@@ -43,8 +39,8 @@ export default function VehicleList({ vehicles, selectedId, onSelect }: Props) {
 
         return (
           <button
-            key={v._id}
-            onClick={() => onSelect(v._id)}
+            key={t._id}
+            onClick={() => onSelect(t._id)}
             className={[
               "block w-full text-left px-4 py-3 border-b border-slate-800 transition",
               isSelected
@@ -53,9 +49,6 @@ export default function VehicleList({ vehicles, selectedId, onSelect }: Props) {
             ].join(" ")}
           >
             <div className="flex items-center gap-3">
-              {/* Vehicle type */}
-              <span className="text-lg">{TYPE_EMOJI[v.type] ?? "🚙"}</span>
-
               {/* Name + plate */}
               <div className="flex-1 min-w-0">
                 <div
@@ -64,14 +57,20 @@ export default function VehicleList({ vehicles, selectedId, onSelect }: Props) {
                     isSelected ? "text-sky-400" : "text-slate-200",
                   ].join(" ")}
                 >
-                  {v.name}
+                  {t.name}
                 </div>
 
-                {v.plateNumber && (
+                {t.employeeId && (
                   <div className="text-[10px] tracking-widest text-slate-500">
-                    {v.plateNumber}
+                    {t.employeeId}
                   </div>
                 )}
+
+                <div className="text-[10px] tracking-widest text-slate-500">
+                  {t.userId?.deviceId
+                    ? `📱 Device: ${t.userId.deviceId}`
+                    : "📵 No device linked"}
+                </div>
               </div>
 
               {/* Speed + freshness */}
@@ -101,8 +100,10 @@ export default function VehicleList({ vehicles, selectedId, onSelect }: Props) {
                 </div>
 
                 <div>
-                  <p className={`text-xs`}>
-                    {v.inShift ? "In Use" : "Not Active"}
+                  <p
+                    className={`text-xs font-medium ${t.inShift ? "text-green-400" : "text-red-400"}`}
+                  >
+                    {t.inShift ? "In-Shift" : "Not in Shift"}
                   </p>
                 </div>
               </div>

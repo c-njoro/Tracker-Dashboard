@@ -6,13 +6,17 @@
  * Now compatible with Vehicle type (lastSeen.speed).
  */
 
-import type { Vehicle } from "@/types/vehicle";
+import type { Technician } from "@/types/technician";
 
-export default function StatsBar({ vehicles }: { vehicles: Vehicle[] }) {
-  const online = vehicles.filter((v) => v.inShift === true).length;
+export default function StatsBar({
+  technicians,
+}: {
+  technicians: Technician[];
+}) {
+  const online = technicians.filter((v) => v.inShift === true).length;
 
-  const moving = vehicles.filter((v) => (v.lastSeen?.speed ?? 0) > 2).length;
-  const maxSpeed = vehicles.reduce(
+  const moving = technicians.filter((v) => (v.lastSeen?.speed ?? 0) > 2).length;
+  const maxSpeed = technicians.reduce(
     (mx, v) => Math.max(mx, v.lastSeen?.speed ?? 0),
     0,
   );
@@ -21,7 +25,7 @@ export default function StatsBar({ vehicles }: { vehicles: Vehicle[] }) {
     <div style={{ display: "flex", gap: 24, flex: 1 }}>
       <Stat
         label="ONLINE"
-        value={`${online}/${vehicles.length}`}
+        value={`${online}/${technicians.length}`}
         color="#10B981"
       />
       <Stat label="MOVING" value={String(moving)} color="#38BDF8" />
